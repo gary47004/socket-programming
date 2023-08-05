@@ -21,6 +21,20 @@
 constexpr int64_t kk = 786 * 10000;
 constexpr int kTimeForWaiting = 15;
 constexpr int kNumOfResp = 200000;
+constexpr timeval kDefaultTimeout = timeval{.tv_sec = 0, .tv_usec = 1000};
+
+void PrintTime(const std::string &msg) {
+  char fmt[64];
+  char buf[64];
+  timeval tv;
+  tm tm;
+
+  gettimeofday(&tv, NULL);
+  localtime_r(&tv.tv_sec, &tm);
+  strftime(fmt, sizeof(fmt), "%H:%M:%S:%%06u", &tm);
+  snprintf(buf, sizeof(buf), fmt, tv.tv_usec);
+  printf("%s message: %s\n", buf, msg.c_str());
+}
 
 enum State { kAdd, kErase };
 
@@ -28,19 +42,6 @@ struct Task {
   int fd;
   State state;
 };
-
-void PrintTime(const std::string &msg) {
-  char fmt[64];
-  char buf[64];
-  struct timeval tv;
-  struct tm *tm;
-
-  gettimeofday(&tv, NULL);
-  tm = localtime(&tv.tv_sec);
-  strftime(fmt, sizeof(fmt), "%H:%M:%S:%%06u", tm);
-  snprintf(buf, sizeof(buf), fmt, tv.tv_usec);
-  printf("%s message: %s\n", buf, msg.c_str());
-}
 
 void GetWriteError(int i, int n) {
   if (i == -1) {
@@ -52,8 +53,6 @@ void GetWriteError(int i, int n) {
 }
 
 int main(int argc, char *argv[]) {
-  constexpr timeval kDefaultTimeout = timeval{.tv_sec = 0, .tv_usec = 1000};
-
   std::mutex mtx_;
   std::list<Task> queue_;
   std::unordered_map<int, uint64_t> sockets_and_count_;
