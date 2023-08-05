@@ -22,9 +22,11 @@ constexpr int64_t kk = 786 * 10000;
 constexpr int kTimeForWaiting = 15;
 constexpr int kNumOfResp = 200000;
 
+enum State { kAdd, kErase };
+
 struct Task {
   int fd;
-  bool add;
+  State state;
 };
 
 void PrintTime(const std::string &msg) {
@@ -94,7 +96,7 @@ int main(int argc, char *argv[]) {
       // Socket在港口等了又等，終於有客人拜訪了，我們可以用函式accept()去接見這名客人。當accept()被調用時，它會為該請求產生出一個新的Socket，並把這個請求從監聽隊列剔除掉。
 
       std::lock_guard<std::mutex> lg(mtx_);
-      queue_.push_back({forClientSockfd, true});
+      queue_.push_back({forClientSockfd, State::kAdd});
     }
   });
 
@@ -107,7 +109,7 @@ int main(int argc, char *argv[]) {
         }
         auto t = queue_.front();
         queue_.pop_front();
-        if (t.add) {
+        if (t.state == State::kAdd) {
           sockets_and_count_[t.fd] = 0;
           PrintTime("fd: " + std::to_string(t.fd));
         } else {
@@ -148,7 +150,7 @@ int main(int argc, char *argv[]) {
           // client distconnects
           printf("reading error len\n");
           std::lock_guard<std::mutex> lg(mtx_);
-          queue_.push_back({fd, false});
+          queue_.push_back({fd, State::kErase});
           continue;
         }
         count += n;
