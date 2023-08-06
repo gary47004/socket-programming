@@ -59,8 +59,8 @@ int main(int argc, char *argv[]) {
   bool continued = true;
 
   char inputBuffer[2048] = {};
-  char message1[] = "HEADER=header|LENGTH=00026Hello Client, I am Server!";
-  char message2[] = "HEADER=header|LENGTH=00021I am fine, thank you!";
+  char message1[] = "8=header|9=00010|35=0|36=A";
+  char message2[] = "8=header|9=00010|35=1|36=B";
 
   // socket的建立
   int sockfd = 0, forClientSockfd = 0;
