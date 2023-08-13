@@ -17,11 +17,7 @@
 #include <thread>
 #include <unordered_map>
 
-// 786 is the length of the request
-constexpr int64_t kk = 786 * 10000;
-constexpr int kTimeForWaiting = 15;
-constexpr int kNumOfResp = 200000;
-constexpr timeval kDefaultTimeout = timeval{.tv_sec = 0, .tv_usec = 1000};
+#include "src/socket_server.h"
 
 void PrintTime(const std::string &msg) {
   char fmt[64];
@@ -36,25 +32,24 @@ void PrintTime(const std::string &msg) {
   printf("%s message: %s\n", buf, msg.c_str());
 }
 
-enum State { kAdd, kErase };
-
-struct Task {
-  int fd;
-  State state;
-};
-
-void GetWriteError(int i, int n) {
-  if (i == -1) {
-    printf("Writing error\n");
+void CheckValidity(int value, int expected, const std::string &msg) {
+  if (value == expected) {
+    return;
   }
-  if (i < n) {
-    printf("writing len error\n");
+  printf("%s\n", msg.c_str());
+  exit(-1);
+}
+
+void CheckValidity(int value, const std::string &msg) {
+  if (value >= 0) {
+    return;
   }
+  CheckValidity(value, 0, msg);
 }
 
 int main(int argc, char *argv[]) {
   std::mutex mtx_;
-  std::list<Task> queue_;
+  std::list<socket_server::Task> queue_;
   std::unordered_map<int, uint64_t> sockets_and_count_;
   bool continued = true;
 
@@ -63,13 +58,8 @@ int main(int argc, char *argv[]) {
   char message2[] = "8=header|9=00010|35=1|36=B";
 
   // socket的建立
-  int sockfd = 0, forClientSockfd = 0;
-  // not sure this works
-  close(sockfd);
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if (sockfd == -1) {
-    printf("Fail to create a socket.\n");
-  }
+  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  CheckValidity(sockfd, "fail to create a socket");
 
   // socket的連線
   struct sockaddr_in serverInfo, clientInfo;
@@ -80,22 +70,18 @@ int main(int argc, char *argv[]) {
   serverInfo.sin_addr.s_addr = inet_addr("0.0.0.0");
   serverInfo.sin_port = htons(8900);
   int err = bind(sockfd, (struct sockaddr *)&serverInfo, sizeof(serverInfo));
-  if (err == -1) {
-    printf("Binding eror\n");
-  }
+  CheckValidity(err, "falied to bind");
   err = listen(sockfd, 500);
-  if (err != 0) {
-    printf("Listening error\n");
-  }
+  CheckValidity(err, "falied to listen");
 
   std::thread t1([&]() {
     while (continued) {
-      forClientSockfd =
+      int forClientSockfd =
           accept(sockfd, (struct sockaddr *)&clientInfo, &addrlen);
       // Socket在港口等了又等，終於有客人拜訪了，我們可以用函式accept()去接見這名客人。當accept()被調用時，它會為該請求產生出一個新的Socket，並把這個請求從監聽隊列剔除掉。
 
       std::lock_guard<std::mutex> lg(mtx_);
-      queue_.push_back({forClientSockfd, State::kAdd});
+      queue_.push_back({forClientSockfd, socket_server::State::kAdd});
     }
   });
 
@@ -108,7 +94,7 @@ int main(int argc, char *argv[]) {
         }
         auto t = queue_.front();
         queue_.pop_front();
-        if (t.state == State::kAdd) {
+        if (t.state == socket_server::State::kAdd) {
           sockets_and_count_[t.fd] = 0;
           PrintTime("fd: " + std::to_string(t.fd));
         } else {
@@ -128,11 +114,9 @@ int main(int argc, char *argv[]) {
           max_fd = fd;
         }
       }
-      timeval timeout = kDefaultTimeout;
+      timeval timeout = socket_server::kDefaultTimeout;
       int error = select(max_fd + 1, &sk_set, NULL, NULL, &timeout);
-      if (error == -1) {
-        printf("select error\n");
-      }
+      CheckValidity(error, "failed to select");
       ssize_t n = 0;
       for (auto [fd, count] : sockets_and_count_) {
         if (!FD_ISSET(fd, &sk_set)) {
@@ -146,42 +130,23 @@ int main(int argc, char *argv[]) {
         }
 
         if (n == 0) {
-          // client distconnects
-          printf("reading error len\n");
+          printf("client disconnects\n");
           std::lock_guard<std::mutex> lg(mtx_);
-          queue_.push_back({fd, State::kErase});
+          queue_.push_back({fd, socket_server::State::kErase});
           continue;
         }
         count += n;
         sockets_and_count_[fd] = count;
         if (count <= 574) {
           error = write(fd, message1, sizeof(message1));
-          GetWriteError(error, sizeof(message1));
+          CheckValidity(error, sizeof(message1), "failed to write");
         }
-        if ((count - 574) % kk == 0) {
-          PrintTime("count: " + std::to_string(count));
-        }
-      }
-    }
-  });
-
-  std::thread t3([&]() {
-    std::this_thread::sleep_for(std::chrono::seconds(kTimeForWaiting));
-    int error = 0;
-    std::lock_guard<std::mutex> lg(mtx_);
-    PrintTime("TEST START");
-    for (int i = 0; i < kNumOfResp; i++) {
-      for (auto [fd, c] : sockets_and_count_) {
-        error = write(fd, message2, sizeof(message2));
-        GetWriteError(error, sizeof(message2));
       }
     }
   });
 
   t1.join();
   t2.join();
-  t3.join();
-  close(forClientSockfd);
   close(sockfd);
   return 0;
 }
