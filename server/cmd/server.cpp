@@ -17,7 +17,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "src/socket_server.h"
+#include "socket-server/socket_server.h"
 
 void PrintTime(const std::string &msg) {
   char fmt[64];
