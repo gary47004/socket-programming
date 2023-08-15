@@ -38,13 +38,12 @@ class SocketServer {
   void Accept();
 
  private:
-  /*
-   void HandleTask(const Task &task);
-   void HandleAddTask(int fd);
-   void HandleEraseTask(int fd);
-   void Select();
-   void Read(int fd);
-   void Write(int fd);*/
+  void HandleTasks();
+  void HandleAddTask(int fd);
+  void HandleEraseTask(int fd);
+  void Select();
+  void Read(int fd);
+  void Write(int fd);
 
   int server_fd_;
   std::mutex mtx_;

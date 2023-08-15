@@ -40,22 +40,20 @@ int main(int argc, char *argv[]) {
 
   char receivedMessage[2048] = {};
   ssize_t n = write(sockfd, kGreetingMessage, sizeof(kGreetingMessage));
-  printf("Sending n: %ld\n", n);
+  printf("sending size: %ld\n", n);
   n = read(sockfd, receivedMessage, sizeof(receivedMessage));
-  printf("Reading n: %ld\n", n);
-  printf("%s\n\n", receivedMessage);
+  printf("reading size: %ld, message: %s\n", n, receivedMessage);
   while (true) {
     std::this_thread::sleep_for(std::chrono::seconds(5));
     memset(receivedMessage, 0, sizeof(receivedMessage));
 
     n = write(sockfd, kMessage, sizeof(kMessage));
-    printf("Sending n: %ld\n", n);
+    printf("sending size: %ld\n", n);
     n = read(sockfd, receivedMessage, sizeof(receivedMessage));
     if (n == 0) {
       break;
     }
-    printf("Reading n: %ld\n", n);
-    printf("%s\n\n", receivedMessage);
+    printf("reading size: %ld, message: %s\n", n, receivedMessage);
   }
   close(sockfd);
   return 0;
