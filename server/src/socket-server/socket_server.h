@@ -1,5 +1,5 @@
-#ifndef SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_H_
-#define SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_H_
+#ifndef SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_SOCKET_SERVER_H_
+#define SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_SOCKET_SERVER_H_
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -21,7 +21,6 @@
 #include <unordered_map>
 
 namespace socket_server {
-constexpr timeval kDefaultTimeout = timeval{.tv_sec = 0, .tv_usec = 1000};
 
 enum State { kAdd, kErase };
 
@@ -29,40 +28,36 @@ struct Task {
   int fd;
   State state;
 };
-/*
+
 class SocketServer {
  public:
   SocketServer(const std::string &ip, int port);
   ~SocketServer();
 
   void Run();
+  void Accept();
 
  private:
-  void AddTask(int fd);
-  void EraseTask(int fd);
-  void HandleTask(const Task &task);
-  void HandleAccept(int fd);
-  void HandleRead(int fd);
-  void HandleWrite(int fd);
-  void HandleError(int fd);
-  void HandleTimeout(int fd);
-  void HandleClose(int fd);
-  void HandleException(int fd);
-  void HandleUnknown(int fd);
-  void Handle(int fd, int events);
-  void Handle();
+  /*
+   void HandleTask(const Task &task);
+   void HandleAddTask(int fd);
+   void HandleEraseTask(int fd);
+   void Select();
+   void Read(int fd);
+   void Write(int fd);*/
 
+  int server_fd_;
   std::mutex mtx_;
   std::list<Task> queue_;
   std::unordered_map<int, uint64_t> sockets_and_count_;
-  std::string ip_;
-  int port_;
-  int sockfd_;
-  fd_set readfds_;
-  fd_set writefds_;
-  fd_set exceptfds_;
-  timeval timeout_;
-};*/
+  char buffer_[2048];
+};
+
+void PrintTime(const std::string &msg);
+
+void CheckValidity(int value, int expected, const std::string &msg);
+
+void CheckValidity(int value, const std::string &msg);
 }  // namespace socket_server
 
-#endif  // SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_H_
+#endif  // SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_SOCKET_SERVER_H_
