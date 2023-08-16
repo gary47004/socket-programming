@@ -17,7 +17,6 @@
 #include <list>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_map>
 
 namespace socket_server {
@@ -41,14 +40,15 @@ class SocketServer {
   void HandleTasks();
   void HandleAddTask(int fd);
   void HandleEraseTask(int fd);
-  void Select();
-  void Read(int fd);
+  void ReceiveAndSend();
+  bool Read(int fd);
   void Write(int fd);
+  void CloseAllClientFd();
 
   int server_fd_;
   std::mutex mtx_;
   std::list<Task> queue_;
-  std::unordered_map<int, uint64_t> sockets_and_count_;
+  std::unordered_map<int, uint64_t> client_fd_and_msg_count_;
   char buffer_[2048];
 };
 
