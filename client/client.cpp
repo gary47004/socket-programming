@@ -19,42 +19,38 @@ constexpr int kServerPort = 8900;
 
 int main(int argc, char *argv[]) {
   // socket的建立
-  int sockfd = 0;
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if (sockfd == -1) {
-    printf("Fail to create a socket.\n");
+  int fd = 0;
+  fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == -1) {
+    printf("failed to create a socket\n");
     exit(-1);
   }
 
   // socket的連線
-  struct sockaddr_in info;
-  bzero(&info, sizeof(info));
+  sockaddr_in info;
   info.sin_family = AF_INET;
-  info.sin_addr.s_addr = inet_addr(kServerIP);
   info.sin_port = htons(kServerPort);
-  int err = connect(sockfd, (struct sockaddr *)&info, sizeof(info));
-  if (err == -1) {
-    printf("connection error\n");
+  info.sin_addr.s_addr = inet_addr(kServerIP);
+  int error = connect(fd, reinterpret_cast<sockaddr *>(&info), sizeof(info));
+  if (error == -1) {
+    printf("failed to connect\n");
     exit(-1);
   }
 
-  char receivedMessage[2048] = {};
-  ssize_t n = write(sockfd, kGreetingMessage, sizeof(kGreetingMessage));
+  char received_msg[2048] = {};
+  ssize_t n = write(fd, kGreetingMessage, sizeof(kGreetingMessage));
   printf("sending size: %ld\n", n);
-  n = read(sockfd, receivedMessage, sizeof(receivedMessage));
-  printf("reading size: %ld, message: %s\n", n, receivedMessage);
+  n = read(fd, received_msg, sizeof(received_msg));
+  printf("reading size: %ld, message: %s\n", n, received_msg);
   while (true) {
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    memset(receivedMessage, 0, sizeof(receivedMessage));
+    memset(received_msg, 0, sizeof(received_msg));
 
-    n = write(sockfd, kMessage, sizeof(kMessage));
+    n = write(fd, kMessage, sizeof(kMessage));
     printf("sending size: %ld\n", n);
-    n = read(sockfd, receivedMessage, sizeof(receivedMessage));
-    if (n == 0) {
-      break;
-    }
-    printf("reading size: %ld, message: %s\n", n, receivedMessage);
+    n = read(fd, received_msg, sizeof(received_msg));
+    printf("reading size: %ld, message: %s\n", n, received_msg);
   }
-  close(sockfd);
+  close(fd);
   return 0;
 }

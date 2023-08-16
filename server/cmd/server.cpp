@@ -1,30 +1,14 @@
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include <chrono>
-#include <cstdint>
-#include <ctime>
-#include <list>
-#include <mutex>
-#include <string>
 #include <thread>
-#include <unordered_map>
 
 #include "socket-server/socket_server.h"
 
+constexpr char kServerIP[] = "0.0.0.0";
+constexpr int kServerPort = 8900;
+
 int main(int argc, char *argv[]) {
   bool continued = true;
+  auto server = socket_server::SocketServer(kServerIP, kServerPort);
 
-  // bzero(&serverInfo, sizeof(serverInfo));
-
-  auto server = socket_server::SocketServer("0.0.0.0", 8900);
   std::thread t1([&]() {
     while (continued) {
       server.Accept();
