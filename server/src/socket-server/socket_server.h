@@ -2,6 +2,7 @@
 #define SOCKET_PROGRAMMING_SERVER_SRC_SOCKET_SERVER_SOCKET_SERVER_H_
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,14 +38,19 @@ class SocketServer {
   void Accept();
 
  private:
+  void InitTaskNotificationPipe();
+  void CloseTaskNotificationPipe();
+  void NotifyAddTaskCreated();
+  void CloseAllClientFd();
   void HandleTasks();
   void HandleAddTask(int fd);
   void HandleEraseTask(int fd);
   void ReceiveAndSend();
   bool Read(int fd);
   void Write(int fd);
-  void CloseAllClientFd();
 
+  int pipe_read_fd_;
+  int pipe_write_fd_;
   int server_fd_;
   std::mutex mtx_;
   std::list<Task> queue_;
