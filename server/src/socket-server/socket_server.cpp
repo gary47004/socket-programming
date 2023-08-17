@@ -1,11 +1,14 @@
 #include "socket-server/socket_server.h"
 
 namespace socket_server {
-constexpr timeval kDefaultTimeout = timeval{.tv_sec = 0, .tv_usec = 1000};
+constexpr timeval kDefaultTimeout = timeval{.tv_sec = 5, .tv_usec = 0};
 constexpr char kMessage[] = "8=header|9=00010|35=0|36=A";
 constexpr int kMaxClientNum = 100;
+constexpr char kNoitfyingMessage[] = "*";
 
 SocketServer::SocketServer(const std::string &ip, int port) {
+  InitTaskNotificationPipe();
+
   // socket的建立
   server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
   CheckValidity(server_fd_, "fail to create a socket");
@@ -24,12 +27,7 @@ SocketServer::SocketServer(const std::string &ip, int port) {
 SocketServer::~SocketServer() {
   CloseAllClientFd();
   close(server_fd_);
-}
-
-void SocketServer::CloseAllClientFd() {
-  for (auto [fd, count] : client_fd_and_msg_count_) {
-    close(fd);
-  }
+  CloseTaskNotificationPipe();
 }
 
 void SocketServer::Run() {
@@ -46,6 +44,50 @@ void SocketServer::Accept() {
 
   std::lock_guard<std::mutex> lg(mtx_);
   queue_.push_back(Task{.fd = client_fd, .state = State::kAdd});
+  NotifyAddTaskCreated();
+}
+
+void SocketServer::InitTaskNotificationPipe() {
+  int fds[2];
+  if (pipe(fds) != 0) {
+    printf("Cannot create a pipe.\n");
+    exit(-1);
+  }
+  pipe_read_fd_ = fds[0];
+  pipe_write_fd_ = fds[1];
+
+  if (fcntl(pipe_write_fd_, F_SETFL,
+            fcntl(pipe_write_fd_, F_GETFL) | O_NONBLOCK) < 0) {
+    printf("Cannot set the write fd of the pipe to non-blocking.\n");
+    exit(-1);
+  }
+  if (fcntl(pipe_write_fd_, F_SETFD,
+            fcntl(pipe_write_fd_, F_GETFD) | FD_CLOEXEC) < 0) {
+    printf("Cannot set the write fd of the pipe to close on exec.\n");
+    exit(-1);
+  }
+  if (fcntl(pipe_read_fd_, F_SETFD,
+            fcntl(pipe_read_fd_, F_GETFD) | FD_CLOEXEC) < 0) {
+    printf("Cannot set the read fd of the pipe to close on exec.\n");
+    exit(-1);
+  }
+}
+
+void SocketServer::CloseTaskNotificationPipe() {
+  close(pipe_read_fd_);
+  close(pipe_write_fd_);
+}
+
+void SocketServer::NotifyAddTaskCreated() {
+  ssize_t n =
+      write(pipe_write_fd_, &kNoitfyingMessage, sizeof(kNoitfyingMessage));
+  CheckValidity(n, sizeof(kNoitfyingMessage), "failed to write to pipe");
+}
+
+void SocketServer::CloseAllClientFd() {
+  for (auto [fd, count] : client_fd_and_msg_count_) {
+    close(fd);
+  }
 }
 
 void SocketServer::HandleTasks() {
@@ -56,7 +98,7 @@ void SocketServer::HandleTasks() {
     }
     auto t = queue_.front();
     queue_.pop_front();
-    if (t.state == socket_server::State::kAdd) {
+    if (t.state == State::kAdd) {
       HandleAddTask(t.fd);
     } else {
       HandleEraseTask(t.fd);
@@ -80,16 +122,24 @@ void SocketServer::HandleEraseTask(int fd) {
 void SocketServer::ReceiveAndSend() {
   fd_set sk_set;
   FD_ZERO(&sk_set);
-  int max_fd = 0;
+  int max_fd = pipe_read_fd_;
+  FD_SET(pipe_read_fd_, &sk_set);
   for (auto [fd, count] : client_fd_and_msg_count_) {
     FD_SET(fd, &sk_set);
     if (max_fd < fd) {
       max_fd = fd;
     }
   }
-  timeval timeout = socket_server::kDefaultTimeout;
+  timeval timeout = kDefaultTimeout;
   int error = select(max_fd + 1, &sk_set, NULL, NULL, &timeout);
   CheckValidity(error, "failed to select");
+  if (FD_ISSET(pipe_read_fd_, &sk_set)) {
+    memset(buffer_, 0, sizeof(buffer_));
+    size_t n = read(pipe_read_fd_, buffer_, sizeof(buffer_));
+    if (n == -1) {
+      printf("failed to read from pipe\n");
+    }
+  }
   for (auto [fd, count] : client_fd_and_msg_count_) {
     if (!FD_ISSET(fd, &sk_set)) {
       continue;
@@ -109,7 +159,7 @@ bool SocketServer::Read(int fd) {
   }
   if (n == 0) {
     std::lock_guard<std::mutex> lg(mtx_);
-    queue_.push_back({fd, socket_server::State::kErase});
+    queue_.push_back({fd, State::kErase});
     return false;
   }
   printf("reading size: %ld, message: %s\n", n, buffer_);

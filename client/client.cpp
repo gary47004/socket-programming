@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
   n = read(fd, received_msg, sizeof(received_msg));
   printf("reading size: %ld, message: %s\n", n, received_msg);
   while (true) {
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    std::this_thread::sleep_for(std::chrono::seconds(2));
     memset(received_msg, 0, sizeof(received_msg));
 
     n = write(fd, kMessage, sizeof(kMessage));
