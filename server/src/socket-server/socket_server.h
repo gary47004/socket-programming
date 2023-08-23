@@ -16,11 +16,32 @@
 #include <cstdint>
 #include <ctime>
 #include <list>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <string>
-#include <unordered_map>
+#include <vector>
 
 namespace socket_server {
+
+class EnhancedSocket {
+ public:
+  explicit EnhancedSocket(int fd);
+  ~EnhancedSocket();
+
+  bool Read();
+  void Write();
+  int GetMessageCount();
+
+ private:
+  std::vector<std::string> GetCompleteMessages(const std::string &msg);
+  bool FindHeader();
+
+  int fd_;
+  int message_count_;
+  std::string buffer_;
+  size_t remaining_len_;
+};
 
 enum State { kAdd, kErase };
 
@@ -41,21 +62,17 @@ class SocketServer {
   void InitTaskNotificationPipe();
   void CloseTaskNotificationPipe();
   void NotifyAddTaskCreated();
-  void CloseAllClientFd();
   void HandleTasks();
   void HandleAddTask(int fd);
   void HandleEraseTask(int fd);
   void ReceiveAndSend();
-  bool Read(int fd);
-  void Write(int fd);
 
   int pipe_read_fd_;
   int pipe_write_fd_;
   int server_fd_;
   std::mutex mtx_;
   std::list<Task> queue_;
-  std::unordered_map<int, uint64_t> client_fd_and_msg_count_;
-  char buffer_[2048];
+  std::map<int, std::shared_ptr<EnhancedSocket>> enhanced_sockets_;
 };
 
 void PrintTime(const std::string &msg);
