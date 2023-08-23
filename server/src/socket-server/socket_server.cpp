@@ -2,9 +2,77 @@
 
 namespace socket_server {
 constexpr timeval kDefaultTimeout = timeval{.tv_sec = 5, .tv_usec = 0};
+constexpr char kMessageHeader[] = "8=header|9=";
+constexpr int kMessageLenLen = 5;
+constexpr int kMessageHeaderLen = sizeof(kMessageHeader) - 1 + kMessageLenLen;
 constexpr char kMessage[] = "8=header|9=00010|35=0|36=A";
 constexpr int kMaxClientNum = 100;
 constexpr char kNoitfyingMessage[] = "*";
+
+char buffer[2048];
+
+EnhancedSocket::EnhancedSocket(int fd)
+    : fd_(fd), message_count_(0), buffer_(""), remaining_len_(0) {}
+
+EnhancedSocket::~EnhancedSocket() { close(fd_); }
+
+bool EnhancedSocket::Read() {
+  memset(buffer, 0, sizeof(buffer));
+  size_t n = read(fd_, buffer, sizeof(buffer));
+  if (n <= 0) {
+    printf("failed to read, fd: %d\n", fd_);
+    return false;
+  }
+  printf("reading size: %ld, fd: %d\n", n, fd_);
+  message_count_++;
+
+  auto msgs = GetCompleteMessages(std::string(buffer));
+  for (auto msg : msgs) {
+    printf("complete message: %s, fd: %d\n", msg.c_str(), fd_);
+  }
+  return true;
+}
+
+void EnhancedSocket::Write() {
+  ssize_t n = write(fd_, kMessage, sizeof(kMessage));
+  CheckValidity(n, sizeof(kMessage),
+                "failed to write, fd: " + std::to_string(fd_));
+  printf("sending size: %ld, fd: %d\n", n, fd_);
+}
+
+int EnhancedSocket::GetMessageCount() { return message_count_; }
+
+std::vector<std::string> EnhancedSocket::GetCompleteMessages(
+    const std::string &msg) {
+  std::vector<std::string> msgs;
+  buffer_.append(msg);
+  while (true) {
+    if ((!remaining_len_) && (!FindHeader())) {
+      break;
+    }
+    if (remaining_len_ > buffer_.size()) {
+      break;  // cannot get the whole remaining from buffer
+    }
+    msgs.emplace_back(buffer_.substr(0, remaining_len_));
+    buffer_.erase(0, remaining_len_);
+    remaining_len_ = 0;
+  }
+  return msgs;
+}
+
+bool EnhancedSocket::FindHeader() {
+  size_t index = buffer_.find(kMessageHeader);
+  if (index == std::string::npos) {
+    return false;
+  }
+  if (buffer_.size() < index + kMessageHeaderLen) {
+    return false;  // without complete header
+  }
+  remaining_len_ = std::stoi(
+      buffer_.substr(index + sizeof(kMessageHeader) - 1, kMessageLenLen));
+  buffer_.erase(0, index + kMessageHeaderLen);
+  return true;
+}
 
 SocketServer::SocketServer(const std::string &ip, int port) {
   InitTaskNotificationPipe();
@@ -25,7 +93,6 @@ SocketServer::SocketServer(const std::string &ip, int port) {
 }
 
 SocketServer::~SocketServer() {
-  CloseAllClientFd();
   close(server_fd_);
   CloseTaskNotificationPipe();
 }
@@ -84,12 +151,6 @@ void SocketServer::NotifyAddTaskCreated() {
   CheckValidity(n, sizeof(kNoitfyingMessage), "failed to write to pipe");
 }
 
-void SocketServer::CloseAllClientFd() {
-  for (auto [fd, count] : client_fd_and_msg_count_) {
-    close(fd);
-  }
-}
-
 void SocketServer::HandleTasks() {
   while (true) {
     std::lock_guard<std::mutex> lg(mtx_);
@@ -107,16 +168,15 @@ void SocketServer::HandleTasks() {
 }
 
 void SocketServer::HandleAddTask(int fd) {
-  client_fd_and_msg_count_[fd] = 0;
+  enhanced_sockets_[fd] = std::make_shared<EnhancedSocket>(fd);
   PrintTime("client connects, fd: " + std::to_string(fd));
 }
 
 void SocketServer::HandleEraseTask(int fd) {
-  auto count = client_fd_and_msg_count_[fd];
+  auto count = enhanced_sockets_[fd]->GetMessageCount();
   PrintTime("client disconnects, fd: " + std::to_string(fd) +
             ", message count: " + std::to_string(count));
-  close(fd);
-  client_fd_and_msg_count_.erase(fd);
+  enhanced_sockets_.erase(fd);
 }
 
 void SocketServer::ReceiveAndSend() {
@@ -124,7 +184,7 @@ void SocketServer::ReceiveAndSend() {
   FD_ZERO(&sk_set);
   int max_fd = pipe_read_fd_;
   FD_SET(pipe_read_fd_, &sk_set);
-  for (auto [fd, count] : client_fd_and_msg_count_) {
+  for (auto [fd, ptr] : enhanced_sockets_) {
     FD_SET(fd, &sk_set);
     if (max_fd < fd) {
       max_fd = fd;
@@ -134,43 +194,23 @@ void SocketServer::ReceiveAndSend() {
   int error = select(max_fd + 1, &sk_set, NULL, NULL, &timeout);
   CheckValidity(error, "failed to select");
   if (FD_ISSET(pipe_read_fd_, &sk_set)) {
-    memset(buffer_, 0, sizeof(buffer_));
-    size_t n = read(pipe_read_fd_, buffer_, sizeof(buffer_));
+    memset(buffer, 0, sizeof(buffer));
+    size_t n = read(pipe_read_fd_, buffer, sizeof(buffer));
     if (n == -1) {
       printf("failed to read from pipe\n");
     }
   }
-  for (auto [fd, count] : client_fd_and_msg_count_) {
+  for (auto [fd, ptr] : enhanced_sockets_) {
     if (!FD_ISSET(fd, &sk_set)) {
       continue;
     }
-    if (Read(fd)) {
-      Write(fd);
+    if (!ptr->Read()) {
+      std::lock_guard<std::mutex> lg(mtx_);
+      queue_.push_back({fd, State::kErase});
+      continue;
     }
+    ptr->Write();
   }
-}
-
-bool SocketServer::Read(int fd) {
-  memset(buffer_, 0, sizeof(buffer_));
-  size_t n = read(fd, buffer_, sizeof(buffer_));
-  if (n == -1) {
-    printf("failed to read\n");
-    return false;
-  }
-  if (n == 0) {
-    std::lock_guard<std::mutex> lg(mtx_);
-    queue_.push_back({fd, State::kErase});
-    return false;
-  }
-  printf("reading size: %ld, message: %s\n", n, buffer_);
-  client_fd_and_msg_count_[fd]++;
-  return true;
-}
-
-void SocketServer::Write(int fd) {
-  ssize_t n = write(fd, kMessage, sizeof(kMessage));
-  CheckValidity(n, sizeof(kMessage), "failed to write");
-  printf("sending size: %ld\n", n);
 }
 
 void PrintTime(const std::string &msg) {
